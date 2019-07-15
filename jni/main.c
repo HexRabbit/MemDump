@@ -192,6 +192,41 @@ int read_maps(pid_t pid, segment *segments, int *segment_size)
     return 0;
 }
 
+int dump_by_ptrace(int pid, ulong start, ulong end, const char *fout)
+{
+    const int segment_size = 0x1000;
+    ulong size = end - start;
+    int res_code = 0;
+    ulong buf[segment_size];
+    int cnt = 0;
+    FILE *output_handle = fopen(fout, "wb");
+    for (ulong address = start; address < end; address += sizeof(ulong)) {
+        errno = 0;
+        buf[cnt++] = ptrace(PTRACE_PEEKDATA, pid, address, NULL);
+        if (errno) {
+            printf("[-] Ptrace peek on address %lx failed: %d, %s\n", address, errno, strerror(errno));
+        }
+
+        if (cnt == segment_size) {
+            cnt = 0;
+            if (fwrite(buf, sizeof(char), segment_size, output_handle) != segment_size) {
+                printf("[-] Write %s failed: %d, %s\n", fout, errno, strerror(errno));
+                res_code = -1;
+                break;
+            }
+        }
+    }
+    if (cnt) {
+        if (fwrite(buf, sizeof(char), cnt, output_handle) != cnt) {
+            printf("[-] Write %s failed: %d, %s\n", fout, errno, strerror(errno));
+            res_code = -1;
+        }
+    }
+
+    fclose(output_handle);
+    return res_code;
+}
+
 int dump_module(int mem_handle, ulong start, ulong end, const char* output)
 {
     ulong size = end - start;
@@ -234,7 +269,7 @@ int main(int argc, char const *argv[])
     strncpy(output, argv[6], strlen(argv[6]));
 
     printf("[+] Input args: {process:%s, pid:%d, start:0x%lx, end:0x%lx, module:%s, output:%s}\n",
-           process, pid, start, end, module, output);
+            process, pid, start, end, module, output);
 
     //check process or pid
     if (pid == 0){
@@ -258,7 +293,7 @@ int main(int argc, char const *argv[])
         int res_code = exec_command(cmd, pid_str, buff);
         if(res_code != 0){
             printf("[-] Can't find process by pid: %d\n", pid);
-            return -1; 
+            return -1;
         }
         printf("[+] Find process by pid: %d\n", pid);
     }
@@ -308,8 +343,8 @@ int main(int argc, char const *argv[])
             return -1;
         }
     }
-
-    res_code = dump_module(mem_handle, start, end, output);
+    res_code = dump_by_ptrace(pid, start, end, output);
+    //res_code = dump_module(mem_handle, start, end, output);
     if (res_code == 0){
         printf("[+] Dump %s success", output);
     }

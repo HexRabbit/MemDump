@@ -37,12 +37,13 @@ def parse_args():
         else:
             options["process"] = args[1]
         
-        if args[2].startswith("0x", 0, 2):
+        if args[2][-3:] == '.so':
+            options["module"] = args[2]            
+        else:
             scope = args[2]
             options["start"] = int(scope.split("-", 1)[0], 16)
             options["end"] = int(scope.split("-", 1)[1], 16)
-        else:
-            options["module"] = args[2]
+
         options["output"] =  args[3]
     else:
         print(usage_code)
@@ -57,13 +58,13 @@ def push(memdump):
     if abi.startswith("x86"):
         os.system("adb push libs/x86/%s /data/local/tmp/" % memdump)
     elif abi.startswith("arm"):
-        os.system("adb push libs/armeabi/%s /data/local/tmp/" % memdump)
+        os.system("adb push libs/armeabi-v7a/%s /data/local/tmp/" % memdump)
     os.system("adb shell su -c 'chmod 777 /data/local/tmp/%s'" % memdump)
 
 
 def build():
     print("[+] Build memory dump script...")
-    os.system("ndk-build -B APP_ABI='x86 armeabi'")
+    os.system("ndk-build NDK_PROJECT_PATH=. -B APP_ABI='armeabi-v7a'")
 
 
 def run(memdump, options):
@@ -74,10 +75,14 @@ def run(memdump, options):
     module = "-" if "module" not in options else options["module"].lower()
     output = "dump_mem.xx" if "output" not in options else "data/local/tmp/" + options["output"]
 
-    args = ("%s %d 0x%x 0x%x %s %s" % (process, pid, start, end, module, output))
+    args = ("%s %d %d %d %s %s" % (process, pid, start, end, module, output))
     command = ("/data/local/tmp/%s %s" % (memdump, args))
     print("[*] Run script with command: %s" % command)
     os.system("adb shell su -c '%s'" % command)
+	print("[+] Pull dump file: %s" % output)
+
+    os.system("adb shell su -c 'chmod 777 /data/local/tmp/%s'" % output)
+    os.system('adb pull /data/local/tmp/%s dump/%s' % (output, output))
 
 
 def pull(output):
@@ -108,7 +113,7 @@ if __name__ == '__main__':
     options = parse_args()
     # print(options)
 
-    memdump = "memdump"
+    memdump = "memdumper"
     action = options["action"]
     if action == "build":
         build()
