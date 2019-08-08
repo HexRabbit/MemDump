@@ -11,8 +11,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 
-#define MAX_BUFF_LEN     1024
-#define MAX_SEGMENT_SIZE 5120
+#define MAX_BUFF_LEN     4096
+#define MAX_SEGMENT_SIZE 1024
 
 typedef unsigned long ulong;
 
@@ -39,6 +39,7 @@ int exec_command(const char* cmd, const char *feature, char *res)
         return -1;
     }
     while (fgets(buff, sizeof(buff), fp) != NULL){
+        printf("%s", buff);
         if (strstr(buff, feature) != NULL){
             strcpy(res, buff);
             return 0;
@@ -209,7 +210,7 @@ int dump_by_ptrace(int pid, ulong start, ulong end, const char *fout)
 
         if (cnt == segment_size) {
             cnt = 0;
-            if (fwrite(buf, sizeof(char), segment_size, output_handle) != segment_size) {
+            if (fwrite(buf, sizeof(ulong), segment_size, output_handle) != segment_size) {
                 printf("[-] Write %s failed: %d, %s\n", fout, errno, strerror(errno));
                 res_code = -1;
                 break;
@@ -217,13 +218,19 @@ int dump_by_ptrace(int pid, ulong start, ulong end, const char *fout)
         }
     }
     if (cnt) {
-        if (fwrite(buf, sizeof(char), cnt, output_handle) != cnt) {
+        if (fwrite(buf, sizeof(ulong), cnt, output_handle) != cnt) {
             printf("[-] Write %s failed: %d, %s\n", fout, errno, strerror(errno));
             res_code = -1;
         }
     }
 
     fclose(output_handle);
+
+    if (truncate(fout, size) != 0) {
+        printf("[-] Truncate %s failed: %d, %s\n", fout, errno, strerror(errno));
+        res_code = -1;
+    }
+
     return res_code;
 }
 
@@ -285,18 +292,17 @@ int main(int argc, char const *argv[])
             printf("[+] Get %s pid: %d\n", process, pid);
         }
     }else{
-        char cmd[MAX_BUFF_LEN];
-        char buff[MAX_BUFF_LEN];
-        char pid_str[MAX_BUFF_LEN];
-        sprintf(pid_str, "%d", pid);
-        sprintf(cmd, "ps | grep %d", pid);
-        int res_code = exec_command(cmd, pid_str, buff);
-        if(res_code != 0){
+        char proc[MAX_BUFF_LEN];
+        struct stat sts;
+        sprintf(proc, "/proc/%d", pid);
+        if (stat(proc, &sts) == -1 && errno == ENOENT) {
+            // process doesn't exist
             printf("[-] Can't find process by pid: %d\n", pid);
             return -1;
         }
         printf("[+] Find process by pid: %d\n", pid);
     }
+
 
     //get sub_pid
     int sub_pid = get_sub_pid(pid);
@@ -308,7 +314,7 @@ int main(int argc, char const *argv[])
     int mem_handle = 0;
     int res_code = attach_process(pid, &mem_handle);
     if(res_code != 0){
-        printf("[-] Attach pid:%d failed", pid);
+        printf("[-] Attach pid:%d failed\n", pid);
         return -1;
     }
     printf("[+] Attach pid:%d success, handle: %d\n", pid, mem_handle);
@@ -346,7 +352,7 @@ int main(int argc, char const *argv[])
     res_code = dump_by_ptrace(pid, start, end, output);
     //res_code = dump_module(mem_handle, start, end, output);
     if (res_code == 0){
-        printf("[+] Dump %s success", output);
+        printf("[+] Dump %s success\n", output);
     }
 
     detach_process(pid);

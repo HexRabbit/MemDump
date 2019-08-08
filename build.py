@@ -12,17 +12,23 @@ Usage: build.py action [process|pid scope|module output]
         run         Run script dump memory
         pull        Pull dump file
         clean       Delete build file
-        
+
     options(run):
         process     Target process name
         pid         Target process pid
         scope       Dump memory scope, such as:0x11111111-0x22222222
         module      Dump memory name
-        output      Output file name        
+        output      Output file name
+
+    make life easier:
+
+    ./build.py push
+    ./build.py run $pid A-B [name]
+
 """
 
 def parse_args():
-    
+
     args = sys.argv[1:]
     options = {}
     if len(args) == 1 and args[0] != "run":
@@ -30,21 +36,22 @@ def parse_args():
     elif len(args) == 2 and args[0] == "pull":
         options["action"] = args[0]
         options["output"] = args[1]
-    elif len(args) == 4:
+    elif len(args) >= 3:
         options["action"] = args[0]
         if args[1].isdigit():
             options["pid"] = int(args[1])
         else:
             options["process"] = args[1]
-        
+
         if args[2][-3:] == '.so':
-            options["module"] = args[2]            
+            options["module"] = args[2]
         else:
             scope = args[2]
             options["start"] = int(scope.split("-", 1)[0], 16)
             options["end"] = int(scope.split("-", 1)[1], 16)
 
-        options["output"] =  args[3]
+        if len(args) == 4:
+            options["output"] = args[3]
     else:
         print(usage_code)
         exit()
@@ -53,12 +60,21 @@ def parse_args():
 
 def push(memdump):
     print("[*] Push memory dump script...")
-    ret = os.popen("adb shell getprop | grep ro.product.cpu.abi").read()
+    ret = os.popen("adb shell \"getprop | grep -F '[ro.product.cpu.abi]'\"").read()
     abi = ret.split(":", 1)[1][2:-2]
-    if abi.startswith("x86"):
+    print("[*] Detected abi: %s" % abi)
+    if abi == "x86_64":
+        os.system("adb push libs/x86_64/%s /data/local/tmp/" % memdump)
+    elif abi == "x86":
         os.system("adb push libs/x86/%s /data/local/tmp/" % memdump)
-    elif abi.startswith("arm"):
+    elif abi == "arm64-v8a":
+        os.system("adb push libs/arm64-v8a/%s /data/local/tmp/" % memdump)
+    elif abi == "armeabi-v7a":
         os.system("adb push libs/armeabi-v7a/%s /data/local/tmp/" % memdump)
+    else:
+        print("[-] %s is not supported" % abi)
+        return
+
     os.system("adb shell su -c 'chmod 777 /data/local/tmp/%s'" % memdump)
 
 
@@ -73,16 +89,18 @@ def run(memdump, options):
     start = 0 if "start" not in options else options["start"]
     end = 0 if "end" not in options else options["end"]
     module = "-" if "module" not in options else options["module"].lower()
-    output = "dump_mem.xx" if "output" not in options else "data/local/tmp/" + options["output"]
+    postfix = ("%lx-%lx" % (start, end)) if end > 0 else module
+    output = ("mem_%s" % postfix) if "output" not in options else options["output"]
 
-    args = ("%s %d %d %d %s %s" % (process, pid, start, end, module, output))
+    args = ("%s %d %d %d %s /data/local/tmp/dump" % (process, pid, start, end, module))
     command = ("/data/local/tmp/%s %s" % (memdump, args))
     print("[*] Run script with command: %s" % command)
     os.system("adb shell su -c '%s'" % command)
-	print("[+] Pull dump file: %s" % output)
+    print("[+] Pull dump file: %s" % output)
 
-    os.system("adb shell su -c 'chmod 777 /data/local/tmp/%s'" % output)
-    os.system('adb pull /data/local/tmp/%s dump/%s' % (output, output))
+    os.system("adb shell su -c 'chmod 777 /data/local/tmp/dump'")
+    os.system('adb pull /data/local/tmp/dump dump/%s' % output)
+    os.system("adb shell su -c 'rm -f /data/local/tmp/dump'")
 
 
 def pull(output):

@@ -22,9 +22,5 @@ Usage: build.py action [process|pid scope|module output]
 exmaple:
 >> python3 build.py build
 >> python3 build.py push
->> python3 build.py pull dump-mem.so
->> python3 build.py clean
-
->> python3 build.py com.example.gnaixx.demo libxxx.so dump-xxx.so
->> python3 build.py 23293 0x11111-0x22222 dump-xxx.so
+>> python3 build.py run 23293 0x11111-0x22222 dump_mem
 ```
